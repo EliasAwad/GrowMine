@@ -52,9 +52,17 @@ function MainGame() {
         {/* Blackjack Page Button */}
         <button
           onClick={() => navigate("/blackjack")}
-          className="flex items-center justify-center space-x-3 bg-gradient-to-r from-green-400 to-green-600 text-black font-bold px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform w-full"
+          className="flex items-center justify-center space-x-3 bg-gradient-to-r from-green-400 to-green-600 text-black font-bold px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform w-full mb-4"
         >
           <span>Blackjack</span>
+        </button>
+
+        {/* Roulette Page Button */}
+        <button
+          onClick={() => navigate("/roulette")}
+          className="flex items-center justify-center space-x-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform w-full"
+        >
+          <span>Roulette</span>
         </button>
       </div>
     </div>

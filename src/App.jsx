@@ -5,10 +5,14 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import MainGame from "./pages/MainGame";
 import Blackjack from "./pages/Blackjack"; // Keep Blackjack if you want it
+import Roulette from "./pages/Roulette";
+
 
 function App() {
   return (
     <Routes>
+      <Route path="/roulette" element={<Roulette />} />
+
       <Route path="/" element={<AppHome />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
