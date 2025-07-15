@@ -49,19 +49,6 @@ function MainGame() {
           +1 DiamondLock (Dev Test)
         </button>
 
-        {/* Coinflip Page Button */}
-        <button
-          onClick={() => navigate("/coinflip")}
-          className="flex items-center justify-center space-x-3 bg-gradient-to-r from-yellow-400 to-yellow-600 text-black font-bold px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform w-full mb-4"
-        >
-          <img
-            src="/coinflip-logo.png"
-            alt="Coinflip Logo"
-            className="w-10 h-10"
-          />
-          <span>Coinflip</span>
-        </button>
-
         {/* Blackjack Page Button */}
         <button
           onClick={() => navigate("/blackjack")}
