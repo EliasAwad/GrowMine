@@ -4,7 +4,7 @@ import AppHome from "./AppHome"; // renamed to avoid circular name clash
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import MainGame from "./pages/MainGame";
-import Coinflip from "./pages/Coinflip.jsx";
+import Coinflip from "./pages/coinflip";
 import Blackjack from "./pages/Blackjack";
 
 
