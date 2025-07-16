@@ -3,9 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 const SUITS = ["♠", "♥", "♦", "♣"];
 const VALUES = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-
-// Added 1 chip to the list here:
 const CHIP_VALUES = [1, 10, 50, 100, 500];
+const STORAGE_KEY = "blackjack_game_state";
 
 function createDeck() {
   let deck = [];
@@ -54,6 +53,10 @@ function playSound(type) {
 
 export default function Blackjack() {
   const username = localStorage.getItem("loggedInUser");
+  const navigate = useNavigate();
+  const dealTimeout = useRef(null);
+
+  // States
   const [balance, setBalance] = useState(0);
   const [bet, setBet] = useState(0);
   const [deck, setDeck] = useState([]);
@@ -66,20 +69,70 @@ export default function Blackjack() {
   const [isDealing, setIsDealing] = useState(false);
   const [dealerPlaying, setDealerPlaying] = useState(false);
 
-  const navigate = useNavigate();
-  const dealTimeout = useRef(null);
-
+  // Load balance and game state on mount
   useEffect(() => {
-    const stored = localStorage.getItem(`balance_${username}`);
-    if (stored) setBalance(parseInt(stored));
+    // Load balance
+    const storedBalance = localStorage.getItem(`balance_${username}`);
+    if (storedBalance) setBalance(parseInt(storedBalance));
+
+    // Load saved blackjack state
+    const savedStateStr = localStorage.getItem(`${STORAGE_KEY}_${username}`);
+    if (savedStateStr) {
+      try {
+        const savedState = JSON.parse(savedStateStr);
+        setBet(savedState.bet || 0);
+        setDeck(savedState.deck || []);
+        setPlayerCards(savedState.playerCards || []);
+        setDealerCards(savedState.dealerCards || []);
+        setShowDealerHole(savedState.showDealerHole || false);
+        setGameOver(savedState.gameOver || false);
+        setMessage(savedState.message || "");
+        setPlayerTurn(savedState.playerTurn || false);
+        setIsDealing(savedState.isDealing || false);
+        setDealerPlaying(savedState.dealerPlaying || false);
+      } catch {
+        // Corrupt state? Ignore
+      }
+    }
   }, [username]);
 
+  // Save game state (excluding balance) whenever relevant state changes
+  useEffect(() => {
+    const stateToSave = {
+      bet,
+      deck,
+      playerCards,
+      dealerCards,
+      showDealerHole,
+      gameOver,
+      message,
+      playerTurn,
+      isDealing,
+      dealerPlaying,
+    };
+    localStorage.setItem(`${STORAGE_KEY}_${username}`, JSON.stringify(stateToSave));
+  }, [
+    bet,
+    deck,
+    playerCards,
+    dealerCards,
+    showDealerHole,
+    gameOver,
+    message,
+    playerTurn,
+    isDealing,
+    dealerPlaying,
+    username,
+  ]);
+
+  // Clear timeouts on unmount
   useEffect(() => {
     return () => {
       if (dealTimeout.current) clearTimeout(dealTimeout.current);
     };
   }, []);
 
+  // Reset game state and clear saved game state & bet
   const resetGame = () => {
     setBet(0);
     setDeck([]);
@@ -91,8 +144,11 @@ export default function Blackjack() {
     setPlayerTurn(false);
     setIsDealing(false);
     setDealerPlaying(false);
+
+    localStorage.removeItem(`${STORAGE_KEY}_${username}`);
   };
 
+  // Betting logic
   const addChip = (value) => {
     if (gameOver || playerTurn) return;
     if (bet + value <= balance) setBet(bet + value);
@@ -103,6 +159,19 @@ export default function Blackjack() {
     setBet(0);
   };
 
+  // Deduct bet immediately on game start
+  const deductBetFromBalance = () => {
+    if (bet > balance) {
+      alert("Insufficient balance.");
+      return false;
+    }
+    const newBalance = balance - bet;
+    setBalance(newBalance);
+    localStorage.setItem(`balance_${username}`, newBalance);
+    return true;
+  };
+
+  // Start the game - deal cards and set states
   const startGame = () => {
     if (bet <= 0) {
       alert("Place a bet first!");
@@ -112,6 +181,8 @@ export default function Blackjack() {
       alert("Insufficient DiamondLocks balance.");
       return;
     }
+
+    if (!deductBetFromBalance()) return;
 
     setIsDealing(true);
     playSound("shuffle");
@@ -156,17 +227,22 @@ export default function Blackjack() {
       setPlayerTurn(true);
       setIsDealing(false);
 
+      setPlayerCards([...pCards]);
+      setDealerCards([...dCards]);
+
+      // Check for immediate blackjack after deal
       const playerVal = getHandValue(pCards);
       if (playerVal === 21) {
         setMessage("Blackjack! You win!");
         setGameOver(true);
         setPlayerTurn(false);
-        updateBalance(true);
+        updateBalance(true); // payout for blackjack win
         playSound("win");
       }
     }, 2600);
   };
 
+  // Player hits - take a card
   const playerHit = () => {
     if (!playerTurn || isDealing || gameOver) return;
     if (deck.length === 0) {
@@ -184,13 +260,14 @@ export default function Blackjack() {
       setMessage("Bust! You lose.");
       setGameOver(true);
       setPlayerTurn(false);
-      updateBalance(false);
       playSound("lose");
+      // No balance update needed; bet already deducted on start
     } else if (value === 21) {
-      playerStand();
+      playerStand(); // auto-stand on 21
     }
   };
 
+  // Player stands - dealer turn starts
   const playerStand = () => {
     if (gameOver || isDealing || !playerTurn) return;
     setPlayerTurn(false);
@@ -198,6 +275,7 @@ export default function Blackjack() {
     dealerTurn();
   };
 
+  // Dealer plays according to rules
   const dealerTurn = async () => {
     setDealerPlaying(true);
     let currentDealerCards = [...dealerCards];
@@ -217,23 +295,25 @@ export default function Blackjack() {
 
     const playerVal = getHandValue(playerCards);
     const dealerVal = getHandValue(currentDealerCards);
+
     let result = "";
 
     if (dealerVal > 21) {
       result = "Dealer busts! You win!";
       playSound("win");
       updateBalance(true);
-    } else if (dealerVal > playerVal) {
-      result = "Dealer wins! You lose.";
-      playSound("lose");
-      updateBalance(false);
-    } else if (dealerVal < playerVal) {
+    } else if (playerVal > dealerVal) {
       result = "You win!";
       playSound("win");
       updateBalance(true);
+    } else if (dealerVal > playerVal) {
+      result = "Dealer wins! You lose.";
+      playSound("lose");
+      // Player lost; bet already deducted on start
     } else {
       result = "Push! It's a tie.";
       playSound("tie");
+      updateBalance(null, true); // refund bet on tie
     }
 
     setMessage(result);
@@ -241,13 +321,22 @@ export default function Blackjack() {
     setDealerPlaying(false);
   };
 
-  const updateBalance = (won) => {
-    const betAmount = bet;
-    const newBalance = won ? balance + betAmount : balance - betAmount;
-    setBalance(newBalance);
-    localStorage.setItem(`balance_${username}`, newBalance);
+  // Update balance based on game outcome
+  // won === true => payout (bet * 2)
+  // refund === true => refund bet (tie)
+  const updateBalance = (won, refund = false) => {
+    if (won === true) {
+      const newBalance = balance + bet * 2;
+      setBalance(newBalance);
+      localStorage.setItem(`balance_${username}`, newBalance);
+    } else if (refund) {
+      const newBalance = balance + bet;
+      setBalance(newBalance);
+      localStorage.setItem(`balance_${username}`, newBalance);
+    }
   };
 
+  // UI for chips
   const Chips = () => (
     <div className="flex space-x-4 mb-6 justify-center">
       {CHIP_VALUES.map((val) => (
@@ -256,7 +345,11 @@ export default function Blackjack() {
           onClick={() => addChip(val)}
           disabled={bet + val > balance || playerTurn || gameOver}
           className={`w-14 h-14 rounded-full font-bold text-white shadow-lg
-            ${bet + val > balance ? "opacity-50 cursor-not-allowed" : "bg-gradient-to-tr from-yellow-400 to-yellow-600 hover:scale-110 transform transition"}
+            ${
+              bet + val > balance
+                ? "opacity-50 cursor-not-allowed"
+                : "bg-gradient-to-tr from-yellow-400 to-yellow-600 hover:scale-110 transform transition"
+            }
             flex items-center justify-center`}
           title={`${val} DiamondLocks`}
         >
@@ -355,9 +448,25 @@ export default function Blackjack() {
               <p className="text-3xl font-extrabold mb-6 text-yellow-300 drop-shadow-lg">
                 {message}
               </p>
+
+              {/* 🧾 Game Log */}
+              <div className="mt-6 bg-black bg-opacity-30 rounded-xl p-4 text-sm text-left text-white font-mono shadow-inner w-full max-w-xl mx-auto">
+                <p>
+                  🃏 <strong>Your Hand:</strong>{" "}
+                  {playerCards.map((c) => `${c.value}${c.suit}`).join(", ")} (
+                  {getHandValue(playerCards)})
+                </p>
+                <p>
+                  🎲 <strong>Dealer's Hand:</strong>{" "}
+                  {dealerCards.map((c) => `${c.value}${c.suit}`).join(", ")} (
+                  {getHandValue(dealerCards)})
+                </p>
+                <p className="mt-2 text-yellow-300 font-bold">📣 Result: {message}</p>
+              </div>
+
               <button
                 onClick={resetGame}
-                className="px-10 py-3 bg-yellow-500 rounded-lg font-bold text-black shadow-lg hover:bg-yellow-600"
+                className="mt-6 px-10 py-3 bg-yellow-500 rounded-lg font-bold text-black shadow-lg hover:bg-yellow-600"
               >
                 Play Again
               </button>
