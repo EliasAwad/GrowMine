@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 const SUITS = ["♠", "♥", "♦", "♣"];
-const VALUES = [
-  "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"
-];
+const VALUES = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
 
-// Helper to create and shuffle deck
+// Added 1 chip to the list here:
+const CHIP_VALUES = [1, 10, 50, 100, 500];
+
 function createDeck() {
   let deck = [];
   for (let suit of SUITS) {
@@ -14,7 +14,6 @@ function createDeck() {
       deck.push({ suit, value });
     }
   }
-  // Shuffle deck
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -22,11 +21,9 @@ function createDeck() {
   return deck;
 }
 
-// Calculate blackjack hand score
 function getHandValue(cards) {
   let value = 0;
   let aceCount = 0;
-
   for (let card of cards) {
     if (card.value === "A") {
       aceCount++;
@@ -37,201 +34,316 @@ function getHandValue(cards) {
       value += parseInt(card.value);
     }
   }
-
-  // Adjust for aces if busted
   while (value > 21 && aceCount > 0) {
     value -= 10;
     aceCount--;
   }
-
   return value;
+}
+
+function playSound(type) {
+  const sounds = {
+    shuffle: "/sounds/shuffle.mp3",
+    deal: "/sounds/deal.mp3",
+    win: "/sounds/win.mp3",
+    lose: "/sounds/lose.mp3",
+    tie: "/sounds/tie.mp3",
+  };
+  new Audio(sounds[type]).play().catch(() => {});
 }
 
 export default function Blackjack() {
   const username = localStorage.getItem("loggedInUser");
   const [balance, setBalance] = useState(0);
-  const [bet, setBet] = useState("");
+  const [bet, setBet] = useState(0);
   const [deck, setDeck] = useState([]);
   const [playerCards, setPlayerCards] = useState([]);
   const [dealerCards, setDealerCards] = useState([]);
+  const [showDealerHole, setShowDealerHole] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [message, setMessage] = useState("");
   const [playerTurn, setPlayerTurn] = useState(false);
-  const [dealerTurn, setDealerTurn] = useState(false);
+  const [isDealing, setIsDealing] = useState(false);
+  const [dealerPlaying, setDealerPlaying] = useState(false);
 
   const navigate = useNavigate();
+  const dealTimeout = useRef(null);
 
   useEffect(() => {
     const stored = localStorage.getItem(`balance_${username}`);
     if (stored) setBalance(parseInt(stored));
   }, [username]);
 
-  // Start new game and deal cards
-  const startGame = () => {
-    const betAmount = parseInt(bet);
-    if (!bet || isNaN(betAmount) || betAmount <= 0) {
-      alert("Enter a valid bet amount");
-      return;
-    }
-    if (betAmount > balance) {
-      alert("You don't have enough DiamondLocks");
-      return;
-    }
-    const newDeck = createDeck();
-    const pCards = [newDeck.pop(), newDeck.pop()];
-    const dCards = [newDeck.pop(), newDeck.pop()];
+  useEffect(() => {
+    return () => {
+      if (dealTimeout.current) clearTimeout(dealTimeout.current);
+    };
+  }, []);
 
-    setDeck(newDeck);
-    setPlayerCards(pCards);
-    setDealerCards(dCards);
+  const resetGame = () => {
+    setBet(0);
+    setDeck([]);
+    setPlayerCards([]);
+    setDealerCards([]);
+    setShowDealerHole(false);
     setGameOver(false);
     setMessage("");
-    setPlayerTurn(true);
-    setDealerTurn(false);
-  };
-
-  // Player hits: add a card
-  const playerHit = () => {
-    if (!playerTurn) return;
-    if (deck.length === 0) return alert("Deck empty!");
-    const newCard = deck.pop();
-    setPlayerCards([...playerCards, newCard]);
-    setDeck(deck);
-  };
-
-  // Player stands: dealer turn starts
-  const playerStand = () => {
     setPlayerTurn(false);
-    setDealerTurn(true);
+    setIsDealing(false);
+    setDealerPlaying(false);
   };
 
-  // Dealer auto play logic
-  useEffect(() => {
-    if (dealerTurn) {
-      const dealerValue = getHandValue(dealerCards);
-      if (dealerValue < 17) {
-        if (deck.length === 0) return alert("Deck empty!");
-        const newCard = deck.pop();
-        setDealerCards([...dealerCards, newCard]);
-        setDeck(deck);
-      } else {
-        setDealerTurn(false);
-        setGameOver(true);
-        determineWinner();
-      }
-    }
-  }, [dealerTurn, dealerCards, deck]);
+  const addChip = (value) => {
+    if (gameOver || playerTurn) return;
+    if (bet + value <= balance) setBet(bet + value);
+  };
 
-  // Check for bust or blackjack during player turn
-  useEffect(() => {
-    if (!playerTurn) return;
-    const playerValue = getHandValue(playerCards);
-    if (playerValue > 21) {
+  const clearBet = () => {
+    if (gameOver || playerTurn) return;
+    setBet(0);
+  };
+
+  const startGame = () => {
+    if (bet <= 0) {
+      alert("Place a bet first!");
+      return;
+    }
+    if (bet > balance) {
+      alert("Insufficient DiamondLocks balance.");
+      return;
+    }
+
+    setIsDealing(true);
+    playSound("shuffle");
+
+    const newDeck = createDeck();
+    let pCards = [];
+    let dCards = [];
+
+    setTimeout(() => {
+      pCards.push(newDeck.pop());
+      playSound("deal");
+      setPlayerCards([...pCards]);
+      setDealerCards([...dCards]);
+    }, 300);
+
+    setTimeout(() => {
+      dCards.push(newDeck.pop());
+      playSound("deal");
+      setPlayerCards([...pCards]);
+      setDealerCards([...dCards]);
+    }, 900);
+
+    setTimeout(() => {
+      pCards.push(newDeck.pop());
+      playSound("deal");
+      setPlayerCards([...pCards]);
+      setDealerCards([...dCards]);
+    }, 1500);
+
+    setTimeout(() => {
+      dCards.push(newDeck.pop());
+      playSound("deal");
+      setPlayerCards([...pCards]);
+      setDealerCards([...dCards]);
+    }, 2100);
+
+    dealTimeout.current = setTimeout(() => {
+      setDeck(newDeck);
+      setShowDealerHole(false);
+      setGameOver(false);
+      setMessage("");
+      setPlayerTurn(true);
+      setIsDealing(false);
+
+      const playerVal = getHandValue(pCards);
+      if (playerVal === 21) {
+        setMessage("Blackjack! You win!");
+        setGameOver(true);
+        setPlayerTurn(false);
+        updateBalance(true);
+        playSound("win");
+      }
+    }, 2600);
+  };
+
+  const playerHit = () => {
+    if (!playerTurn || isDealing || gameOver) return;
+    if (deck.length === 0) {
+      alert("Deck is empty!");
+      return;
+    }
+    const newCard = deck.pop();
+    const newPlayerCards = [...playerCards, newCard];
+    setPlayerCards(newPlayerCards);
+    setDeck(deck);
+    playSound("deal");
+
+    const value = getHandValue(newPlayerCards);
+    if (value > 21) {
       setMessage("Bust! You lose.");
       setGameOver(true);
       setPlayerTurn(false);
-      setDealerTurn(false);
       updateBalance(false);
-    } else if (playerValue === 21) {
-      setMessage("Blackjack! You win!");
-      setGameOver(true);
-      setPlayerTurn(false);
-      setDealerTurn(false);
-      updateBalance(true);
-    }
-  }, [playerCards]);
-
-  // Determine winner after dealer turn ends
-  const determineWinner = () => {
-    const playerValue = getHandValue(playerCards);
-    const dealerValue = getHandValue(dealerCards);
-
-    if (dealerValue > 21) {
-      setMessage("Dealer busts! You win!");
-      updateBalance(true);
-    } else if (dealerValue === playerValue) {
-      setMessage("Push! It's a tie.");
-      // balance unchanged
-    } else if (dealerValue > playerValue) {
-      setMessage("Dealer wins! You lose.");
-      updateBalance(false);
-    } else {
-      setMessage("You win!");
-      updateBalance(true);
+      playSound("lose");
+    } else if (value === 21) {
+      playerStand();
     }
   };
 
-  // Update balance depending on win/lose
+  const playerStand = () => {
+    if (gameOver || isDealing || !playerTurn) return;
+    setPlayerTurn(false);
+    setShowDealerHole(true);
+    dealerTurn();
+  };
+
+  const dealerTurn = async () => {
+    setDealerPlaying(true);
+    let currentDealerCards = [...dealerCards];
+    let currentDeck = [...deck];
+
+    while (getHandValue(currentDealerCards) < 17) {
+      await new Promise((r) => setTimeout(r, 1200));
+      if (currentDeck.length === 0) break;
+      const card = currentDeck.pop();
+      currentDealerCards.push(card);
+      setDealerCards([...currentDealerCards]);
+      setDeck(currentDeck);
+      playSound("deal");
+    }
+
+    await new Promise((r) => setTimeout(r, 800));
+
+    const playerVal = getHandValue(playerCards);
+    const dealerVal = getHandValue(currentDealerCards);
+    let result = "";
+
+    if (dealerVal > 21) {
+      result = "Dealer busts! You win!";
+      playSound("win");
+      updateBalance(true);
+    } else if (dealerVal > playerVal) {
+      result = "Dealer wins! You lose.";
+      playSound("lose");
+      updateBalance(false);
+    } else if (dealerVal < playerVal) {
+      result = "You win!";
+      playSound("win");
+      updateBalance(true);
+    } else {
+      result = "Push! It's a tie.";
+      playSound("tie");
+    }
+
+    setMessage(result);
+    setGameOver(true);
+    setDealerPlaying(false);
+  };
+
   const updateBalance = (won) => {
-    const betAmount = parseInt(bet);
-    let newBalance = balance;
-    if (won) newBalance += betAmount;
-    else newBalance -= betAmount;
+    const betAmount = bet;
+    const newBalance = won ? balance + betAmount : balance - betAmount;
     setBalance(newBalance);
     localStorage.setItem(`balance_${username}`, newBalance);
   };
 
+  const Chips = () => (
+    <div className="flex space-x-4 mb-6 justify-center">
+      {CHIP_VALUES.map((val) => (
+        <button
+          key={val}
+          onClick={() => addChip(val)}
+          disabled={bet + val > balance || playerTurn || gameOver}
+          className={`w-14 h-14 rounded-full font-bold text-white shadow-lg
+            ${bet + val > balance ? "opacity-50 cursor-not-allowed" : "bg-gradient-to-tr from-yellow-400 to-yellow-600 hover:scale-110 transform transition"}
+            flex items-center justify-center`}
+          title={`${val} DiamondLocks`}
+        >
+          {val}
+        </button>
+      ))}
+      <button
+        onClick={clearBet}
+        disabled={playerTurn || gameOver || bet === 0}
+        className="w-14 h-14 rounded-full bg-red-600 text-white font-bold hover:bg-red-700"
+        title="Clear Bet"
+      >
+        ✕
+      </button>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-neutral-900 text-white p-6 flex flex-col items-center">
-      <h1 className="text-yellow-400 text-4xl mb-6 font-bold">Blackjack</h1>
+    <div className="min-h-screen bg-green-900 bg-gradient-to-b from-green-800 via-green-900 to-black p-6 flex flex-col items-center font-sans select-none">
+      <h1 className="text-yellow-400 text-5xl mb-4 font-extrabold drop-shadow-lg">
+        Casino Blackjack
+      </h1>
+      <p className="mb-2 text-white font-semibold text-lg">
+        Balance:{" "}
+        <span className="text-yellow-400">{balance.toLocaleString()}</span>{" "}
+        DiamondLocks
+      </p>
 
-      <p className="mb-4">Balance: {balance} DiamondLocks</p>
-
-      {!playerTurn && !dealerTurn && !gameOver && (
-        <div className="mb-4 w-full max-w-sm">
-          <input
-            type="number"
-            min="1"
-            placeholder="Enter your bet"
-            value={bet}
-            onChange={(e) => setBet(e.target.value)}
-            className="w-full p-2 rounded text-black"
-          />
-          <button
-            onClick={startGame}
-            className="mt-2 w-full py-2 bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded"
-          >
-            Start Game
-          </button>
-        </div>
+      {!playerTurn && !gameOver && (
+        <>
+          <Chips />
+          <div className="mb-6">
+            <button
+              disabled={bet === 0 || isDealing}
+              onClick={startGame}
+              className={`px-10 py-3 rounded bg-yellow-500 text-black font-bold shadow-lg
+              hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isDealing ? "Dealing..." : `Start Game (${bet})`}
+            </button>
+          </div>
+        </>
       )}
 
-      {(playerTurn || dealerTurn || gameOver) && (
-        <>
-          <div className="mb-6 w-full max-w-xl flex justify-between">
-            <div>
-              <h2 className="text-lg font-semibold mb-2">Player's Hand ({getHandValue(playerCards)})</h2>
-              <div className="flex space-x-2">
-                {playerCards.map((c, i) => (
-                  <Card key={i} card={c} />
-                ))}
-              </div>
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold mb-2">Dealer's Hand ({dealerTurn ? "?" : getHandValue(dealerCards)})</h2>
-              <div className="flex space-x-2">
-                {dealerCards.map((c, i) => (
-                  <Card
-                    key={i}
-                    card={c}
-                    hidden={dealerTurn && i === 1} // hide dealer's 2nd card during dealerTurn
-                  />
-                ))}
-              </div>
+      {(playerCards.length > 0 || dealerCards.length > 0) && (
+        <div className="max-w-5xl w-full bg-green-700 rounded-lg p-6 shadow-xl border-4 border-yellow-400">
+          <div className="mb-10">
+            <h2 className="text-xl font-semibold text-white mb-3 text-center">
+              Dealer's Hand{" "}
+              {showDealerHole ? `(${getHandValue(dealerCards)})` : "(?)"}
+            </h2>
+            <div className="flex justify-center space-x-6">
+              {dealerCards.map((card, i) => (
+                <Card
+                  key={i}
+                  card={card}
+                  hidden={!showDealerHole && i === 1}
+                  large
+                />
+              ))}
             </div>
           </div>
 
-          {!gameOver && playerTurn && (
-            <div className="flex space-x-4">
+          <div>
+            <h2 className="text-xl font-semibold text-white mb-3 text-center">
+              Your Hand ({getHandValue(playerCards)})
+            </h2>
+            <div className="flex justify-center space-x-6">
+              {playerCards.map((card, i) => (
+                <Card key={i} card={card} large />
+              ))}
+            </div>
+          </div>
+
+          {playerTurn && (
+            <div className="mt-12 flex justify-center space-x-10">
               <button
                 onClick={playerHit}
-                className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded font-bold"
+                disabled={isDealing}
+                className="px-10 py-3 bg-green-600 rounded-lg font-bold text-white shadow-lg hover:bg-green-700"
               >
                 Hit
               </button>
               <button
                 onClick={playerStand}
-                className="px-6 py-2 bg-red-600 hover:bg-red-700 rounded font-bold"
+                disabled={isDealing}
+                className="px-10 py-3 bg-red-600 rounded-lg font-bold text-white shadow-lg hover:bg-red-700"
               >
                 Stand
               </button>
@@ -239,28 +351,30 @@ export default function Blackjack() {
           )}
 
           {gameOver && (
-            <>
-              <p className="mt-6 text-xl font-semibold">{message}</p>
+            <div className="mt-12 text-center">
+              <p className="text-3xl font-extrabold mb-6 text-yellow-300 drop-shadow-lg">
+                {message}
+              </p>
               <button
-                onClick={() => {
-                  setBet("");
-                  setPlayerCards([]);
-                  setDealerCards([]);
-                  setMessage("");
-                  setGameOver(false);
-                }}
-                className="mt-4 px-6 py-2 bg-yellow-500 hover:bg-yellow-600 text-black font-bold rounded"
+                onClick={resetGame}
+                className="px-10 py-3 bg-yellow-500 rounded-lg font-bold text-black shadow-lg hover:bg-yellow-600"
               >
                 Play Again
               </button>
-            </>
+            </div>
           )}
-        </>
+
+          {dealerPlaying && (
+            <p className="mt-8 text-center text-white italic text-lg animate-pulse">
+              Dealer is playing...
+            </p>
+          )}
+        </div>
       )}
 
       <button
         onClick={() => navigate("/maingame")}
-        className="mt-8 underline text-zinc-400 hover:text-white"
+        className="mt-10 underline text-zinc-400 hover:text-white"
       >
         ← Back to Main Game
       </button>
@@ -268,15 +382,25 @@ export default function Blackjack() {
   );
 }
 
-// Card component to display card
-function Card({ card, hidden }) {
+function Card({ card, hidden = false, large = false }) {
+  const sizeClasses = large
+    ? "w-20 h-28 sm:w-24 sm:h-36 text-4xl"
+    : "w-12 h-16 text-xl";
+
+  const isRed = card.suit === "♥" || card.suit === "♦";
+
   return (
     <div
-      className={`w-12 h-16 rounded-md flex items-center justify-center text-xl font-bold ${
-        hidden ? "bg-zinc-700" : "bg-yellow-400 text-black"
+      className={`rounded-lg shadow-md flex items-center justify-center font-bold border-2 border-yellow-400 select-none
+      ${sizeClasses} ${
+        hidden
+          ? "bg-zinc-800 border-zinc-700 text-zinc-800 cursor-default"
+          : isRed
+          ? "bg-white text-red-600"
+          : "bg-white text-black"
       }`}
     >
-      {hidden ? "?" : `${card.value}${card.suit}`}
+      {hidden ? "🂠" : `${card.value}${card.suit}`}
     </div>
   );
 }
